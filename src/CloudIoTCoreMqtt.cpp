@@ -163,41 +163,45 @@ void CloudIoTCoreMqtt::logReturnCode() {
 }
 
 void CloudIoTCoreMqtt::mqttConnect(bool skip) {
+
+  unsigned long currentMillis = millis();
+  static unsigned long nextTry=0;
+
+  if(currentMillis < nextTry)
+    return;
+
   Serial.print("\nconnecting...");
-  bool keepgoing = true;
-  while (keepgoing) {
-    this->mqttClient->connect(device->getClientId().c_str(), "unused", getJwt().c_str(), skip);
+  this->mqttClient->connect(device->getClientId().c_str(), "unused", getJwt().c_str(), skip);
 
-    if (this->mqttClient->lastError() != LWMQTT_SUCCESS){
-      logError();
-      logReturnCode();
-      // See https://cloud.google.com/iot/docs/how-tos/exponential-backoff
-      if (this->__backoff__ < this->__minbackoff__) {
-        this->__backoff__ = this->__minbackoff__;
-      }
-      this->__backoff__ = (this->__backoff__ * this->__factor__) + random(this->__jitter__);
-      if (this->__backoff__ > this->__max_backoff__) {
-        this->__backoff__ = this->__max_backoff__;
-      }
-
-      // Clean up the client
-      this->mqttClient->disconnect();
-      skip = false;
-      Serial.println("Delaying " + String(this->__backoff__) + "ms");
-      delay(this->__backoff__);
-      keepgoing = true;
-    } else {
-      // We're now connected
-      Serial.println("\nconnected!");
-      keepgoing = false;
+  if (this->mqttClient->lastError() != LWMQTT_SUCCESS){
+    logError();
+    logReturnCode();
+    // See https://cloud.google.com/iot/docs/how-tos/exponential-backoff
+    if (this->__backoff__ < this->__minbackoff__) {
       this->__backoff__ = this->__minbackoff__;
     }
+    this->__backoff__ = (this->__backoff__ * this->__factor__) + random(this->__jitter__);
+    if (this->__backoff__ > this->__max_backoff__) {
+      this->__backoff__ = this->__max_backoff__;
+    }
+    
+    
+    // Clean up the client
+    this->mqttClient->disconnect();
+    skip = false;
+    Serial.println("Try again in " + String(this->__backoff__) + "ms");
+  } else {
+    // We're now connected
+    Serial.println("\nconnected!");
+    this->__backoff__ = this->__minbackoff__;
+
+
+      // Set QoS to 1 (ack) for configuration messages
+    this->mqttClient->subscribe(device->getConfigTopic(), 1);
+    // QoS 0 (no ack) for commands
+    this->mqttClient->subscribe(device->getCommandsTopic(), 0);
+    onConnect();
   }
 
-  // Set QoS to 1 (ack) for configuration messages
-  this->mqttClient->subscribe(device->getConfigTopic(), 1);
-  // QoS 0 (no ack) for commands
-  this->mqttClient->subscribe(device->getCommandsTopic(), 0);
-
-  onConnect();
+  nextTry = currentMillis + this->__backoff__;  
 }
